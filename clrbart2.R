@@ -7,10 +7,11 @@
 # fixed effects (binary or continuous) in the systematic component of the model.
 
 # Load Packages -----------------------------------------------------------
+packages <- c('tidyverse','survival','ars')
+install.packages(setdiff(packages, rownames(installed.packages())))
 library(tidyverse)
 library(survival)
 library(ars)
-source('helper_fcns.R')
 
 # Define clrbart2 function ------------------------------------------------
 clrbart2 <- function(w, x, y, z, strata, beta.corr = solve(t(x) %*% x),
