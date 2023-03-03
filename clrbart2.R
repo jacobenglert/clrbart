@@ -9,6 +9,7 @@
 # Load Packages -----------------------------------------------------------
 packages <- c('tidyverse','survival','ars')
 install.packages(setdiff(packages, rownames(installed.packages())))
+rm(packages)
 library(tidyverse)
 library(survival)
 library(ars)
@@ -33,9 +34,13 @@ clrbart2 <- function(w, x, y, z, strata, beta.corr = solve(t(x) %*% x),
   # Set up storage for MCMC results
   beta <- matrix(0, ncol = p, nrow = iter)
   colnames(beta) <- paste0('beta', 1:p)
-  mu.lookup <- list()
-  #mu <- matrix(0, ncol = n, nrow = iter)
-  #colnames(mu) <- paste0('mu', 1:n)
+  
+  
+  # mu.lookup <- list()
+  mu <- matrix(0, ncol = n, nrow = iter)
+  colnames(mu) <- paste0('mu', 1:n)
+  
+  
   sigma2.beta.store <- matrix(0, nrow = iter)
   sigma2.mu.store   <- matrix(0, nrow = iter)
   move.store        <- matrix(character(iter), nrow = iter)
@@ -46,9 +51,11 @@ clrbart2 <- function(w, x, y, z, strata, beta.corr = solve(t(x) %*% x),
   # Initialize beta and mu
   m0 <- clogit(y ~ x + z + strata(strata))
   beta[1,] <- coef(m0)[1:p]
-  mu.lookup[[1]] <- matrix(coef(m0)[p+1])
-  colnames(mu.lookup[[1]]) <- 'mu'
-  #mu[1,] <- coef(m0)[p+1]
+  
+  # mu.lookup[[1]] <- matrix(coef(m0)[p+1])
+  # colnames(mu.lookup[[1]]) <- 'mu'
+  mu[1,] <- coef(m0)[p+1]
+  
   sigma2.beta.store[1,] <- sigma2.beta
   sigma2.mu.store[1,] <- sigma2.mu
   
@@ -72,9 +79,9 @@ clrbart2 <- function(w, x, y, z, strata, beta.corr = solve(t(x) %*% x),
     beta.curr <- as.numeric(beta[k,])
     
     # Log-likelihoods (proposal and current)
-    # sc2 <- rep.int(mu[1,], windows)
-    ljby <- setdiff(names(which(apply(mu.lookup[[k]], 2, var) != 0)),'mu')
-    sc2 <- dplyr::left_join(as.data.frame(w), as.data.frame(mu.lookup[[k]]), by = ljby)$mu
+    sc2 <- rep.int(mu[1,], windows)
+    # ljby <- setdiff(names(which(apply(mu.lookup[[k]], 2, var) != 0)),'mu')
+    # sc2 <- dplyr::left_join(as.data.frame(w), as.data.frame(mu.lookup[[k]]), by = ljby)$mu
     ll.prop <- compLogLik(y = y, sc = x %*% beta.prop + sc2, strata = strata, max.win = max.win, na.locs = na.locs)
     ll.curr <- compLogLik(y = y, sc = x %*% beta.curr + sc2, strata = strata, max.win = max.win, na.locs = na.locs)
     
@@ -180,8 +187,8 @@ clrbart2 <- function(w, x, y, z, strata, beta.corr = solve(t(x) %*% x),
     } else acc <- 0
     
     # Update mu
-    # mu[k+1,] <- getBARTfits(tree, strata)
-    mu.lookup[[k+1]] <- getLookupTable(tree, w, strata)
+    mu[k+1,] <- getBARTfits(tree, strata)
+    # mu.lookup[[k+1]] <- getLookupTable(tree, w, strata)
     
     # Store movement, run time, acceptance, and log-likelihood information
     move.store[k+1,] <- move
@@ -210,13 +217,16 @@ clrbart2 <- function(w, x, y, z, strata, beta.corr = solve(t(x) %*% x),
   }
   
   # Apply burn-in and thinning before returning result (this can be more efficient with list)
-  post <- list(beta = beta, sigma2.beta = sigma2.beta.store, sigma2.mu = sigma2.mu.store,
+  post <- list(beta = beta, 
+               mu = mu, 
+               sigma2.beta = sigma2.beta.store, sigma2.mu = sigma2.mu.store,
                move = move.store, time = time.store, acc = acc.store, logLik = logLik.store)
   if(burnin > 0) post <- lapply(post, function(x) x[(burnin+1):iter, ])
   if(thin > 1) post <- lapply(post, function(x) x[seq(1, iter, thin), ])
   
-  if(burnin > 0) mu.lookup <- mu.lookup[(burnin+1):iter]
-  if(thin > 1) mu.lookup <- mu.lookup[seq(1, iter, thin)]
+  # if(burnin > 0) mu.lookup <- mu.lookup[(burnin+1):iter]
+  # if(thin > 1) mu.lookup <- mu.lookup[seq(1, iter, thin)]
   
-  return(list(post = post, mu.lookup = mu.lookup, tree = tree, acc.prob = n.acc/(iter - burnin)))
+  # return(list(post = post, mu.lookup = mu.lookup, tree = tree, acc.prob = n.acc/(iter - burnin)))
+  return(list(post = post, tree = tree, acc.prob = n.acc/(iter - burnin)))
 }
