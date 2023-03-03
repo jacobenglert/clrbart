@@ -75,7 +75,7 @@ clrbart2 <- function(w, x, y, z, strata, beta.corr = solve(t(x) %*% x),
   cat('Running MCMC... \n')
   pb <- progress_bar$new(
     format = "Running MCMC [:bar] :elapsedfull",
-    total = 100, clear = FALSE, width = 60)
+    total = iter, clear = FALSE, width = 60)
   pb$tick()
   mcmc.start <- Sys.time()
   for(k in 1:(iter-1)){
