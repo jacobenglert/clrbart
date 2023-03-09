@@ -55,8 +55,9 @@ clrbart2 <- function(w, x, y, z, strata, beta.corr = solve(t(x) %*% x),
   m0 <- clogit(y ~ x + z + strata(strata))
   beta[1,] <- coef(m0)[1:p]
   
-  mu.lookup[[1]] <- matrix(coef(m0)[p+1])
-  colnames(mu.lookup[[1]]) <- 'mu'
+  mu.lookup[[1]] <- as.data.frame(w) %>%
+    distinct(across(all_of(colnames(w))), .keep_all = TRUE) %>%
+    mutate(mu = coef(m0)[p+1])
   # mu[1,] <- coef(m0)[p+1]
   
   sigma2.beta.store[1,] <- sigma2.beta

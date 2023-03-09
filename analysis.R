@@ -5,7 +5,7 @@
 # simulated from CCO_sim_confounders.R
 
 # Load Packages -----------------------------------------------------------
-library(dplyr)
+library(tidyverse)
 
 # Load clrbart2 function --------------------------------------------------
 source('https://raw.githubusercontent.com/jacobenglert/clrbart/main/clrbart2.R')
@@ -23,7 +23,7 @@ strata <- data$ID
 
 # Fit Model ---------------------------------------------------------------
 set.seed(2187)
-myfit <- clrbart2(w, x, y, z, strata, iter = 20000, burnin = 5000)
+myfit <- clrbart2(w, x, y, z, strata, iter = 2000, burnin = 0)
 saveRDS(myfit, file = "MCMCMoutput/xwz_20000_01MAR2023.RData")
 
 # Summarize tree
@@ -71,41 +71,54 @@ data.frame(move = myfit$post$move,
 
 # Inference on the mu's ---------------------------------------------------
 
-compute_
+w0 <- data.frame(W1 = NA, W2 = NA, W3 = 1, W4 = NA, W5 = NA)
+w1 <- data.frame(W1 = NA, W2 = NA, W3 = NA, W4 = 0, W5 = NA)
+w_data <- as.data.frame(w)
+w_compare <- function(w0, w1, w_data, mu){
+  
+  w0_vars <- names(w0)[!is.na(w0)]
+  w1_vars <- names(w1)[!is.na(w1)]
+  
+  w_vars <- colnames(w_data)
+  
+  w_counts <- w_data %>%
+    group_by(across(all_of(w_vars))) %>%
+    summarise(n = n()) %>%
+    ungroup()
 
-# Identify effect modifiers
-w_vars <- colnames(w)
+  w0_data <- w0[w0_vars] %>%
+    cross_join(select(w_counts, -all_of(w0_vars))) %>%
+    group_by(across(all_of(w_vars))) %>% 
+    summarise(n = sum(n))
+  
+  w1_data <- w1[w1_vars] %>%
+    cross_join(select(w_counts, -all_of(w1_vars))) %>%
+    group_by(across(all_of(w_vars))) %>% 
+    summarise(n = sum(n))
+  
+  w0_mu <- w0_data %>% 
+    left_join(mu, by = w_vars, multiple = 'all') %>%
+    group_by(iter) %>%
+    summarise(mu = sum(n * mu) / sum(n)) %>%
+    ungroup() %>%
+    select(mu)
+  
+  w1_mu <- w1_data %>% 
+    left_join(mu, by = w_vars, multiple = 'all') %>%
+    group_by(iter) %>%
+    summarise(mu = sum(n * mu) / sum(n)) %>%
+    ungroup() %>%
+    select(mu)
+  
+  CATE <- bind_rows(w0_mu, w1_mu, cate = w1_mu - w0_mu, .id = 'Group') 
+  
+  return(CATE)
+}
 
-# Obtain frequencies of all effect modifier combinations in original dataset
-w_counts <- as.data.frame(w) %>%
-  group_by(across(all_of(w_vars))) %>%
-  summarise(n = n()) %>%
-  ungroup()
-
-# Create counterfactuals and reobtain frequencies
-w1 <- w_counts %>% mutate(W1 = 1) %>% group_by(across(all_of(w_vars))) %>% summarise(n = sum(n))
-w0 <- w_counts %>% mutate(W1 = 0) %>% group_by(across(all_of(w_vars))) %>% summarise(n = sum(n))
-
-# Compute weighted averages of posterior estimates for both groups
-w1.mu <- w1 %>% 
-  left_join(mu.post, by = w_vars) %>%
-  group_by(iter) %>%
-  summarise(mu = sum(n * mu) / sum(n)) %>%
-  ungroup() %>%
-  select(mu)
-
-w0.mu <- w0 %>% 
-  left_join(mu.post, by = w_vars) %>%
-  group_by(iter) %>%
-  summarise(mu = sum(n * mu) / sum(n)) %>%
-  ungroup() %>%
-  select(mu)
-
-# Store estimates of each group effect and the CATE
-CATE <- bind_rows(mu1 = w1.mu, mu0 = w0.mu, cate = w1.mu - w0.mu, .id = 'Group') 
+w0_w1 <- w_compare(w0, w1, w_data, mu.post)
 
 # Plot
-CATEplot <- CATE %>%
+CATEplot <- w0_w1 %>%
   ggplot(aes(x = mu, fill = Group)) +
   geom_density(alpha = 0.7, color = 'black') +
   facet_wrap(~Group, ncol = 1)

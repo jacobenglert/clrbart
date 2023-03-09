@@ -15,7 +15,7 @@ make_cc <- function(t0, z0, t1, x1){
   CC <- data.frame(Case.Date = t1, x1) %>%
     mutate(ID = row_number()) %>%
     left_join(select(all_strata, Date, Strata), by = c('Case.Date' = 'Date')) %>% # Determine the strata to which the case belongs to
-    right_join(all_strata, by = 'Strata') %>% # Add records for the remaining observations in the case strata
+    left_join(all_strata, by = join_by(Strata), multiple = 'all') %>% # Add records for the remaining observations in the case strata
     filter(!is.na(Case.Date)) %>% # Remove strata that don't have cases
     mutate(Y = ifelse(Date == Case.Date, 1, 0)) %>% # Identify the record for which the case occurred
     select(-c(Case.Date, Strata))

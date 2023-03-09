@@ -61,7 +61,10 @@ W.star <- matrix(W[Y == 1,], ncol = ncol(W), byrow = FALSE)
 colnames(W.star) <- paste0('W', 1:ncol(W.star))
 
 # Create CC structure
-CC <- make_cc(t, cbind(x, Z = z), t.star, W.star)
+CC <- make_cc(t0 = t, z0 = cbind(x, Z = z), t1 = t.star, x1 = W.star)
+
+# Export test dataset
+write_csv(CC, 'Data/XWZ.csv')
 
 # Recover exact odds ratios for subsets
 Wc.star <- matrix(!select(CC, starts_with('W')), ncol = ncol(W)) * 1
@@ -82,6 +85,5 @@ logLik(mXWZ)
 logLik(mWZ2)
 logLik(mXWZ2)
 
-# Export test dataset
-write_csv(CC, 'Data/XWZ.csv')
+
 

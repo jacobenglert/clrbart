@@ -297,7 +297,7 @@ BIRTH <- function(tree, x, y, z, sc1 = numeric(length(y)), strata, sigma2.mu, mi
     
     if(l == 1) l_x <- as.data.frame(cbind(strata, x))
     else l_x <- dplyr::filter(as.data.frame(cbind(strata, x)), eval(str2lang(a.rules)))
-    l_x_distinct <- as.matrix(dplyr::distinct(l_x)[, unused_x])
+    l_x_distinct <- dplyr::distinct(l_x)[unused_x]
     new_node_sizes <- matrix(apply(l_x_distinct, 2, function(x) table(factor(x, levels = 0:1))), ncol = length(unused_x))
     colnames(new_node_sizes) <- unused_x
     
@@ -317,9 +317,7 @@ BIRTH <- function(tree, x, y, z, sc1 = numeric(length(y)), strata, sigma2.mu, mi
   new_rule <- c(paste(x_split, '==', 0), paste(x_split, '==', 1))
   
   # Update original leaf node
-  tree[[l]]$b <- 1
-  tree[[l]]$l <- 0
-  tree[[l]]$NOG <- 1
+  tree[[l]][c('b','l','NOG')] <- c(1, 0, 1)
   
   # Update parent of original leaf node
   if(l != 1) tree[[getParent(l)]]$NOG <- 0
@@ -332,24 +330,19 @@ BIRTH <- function(tree, x, y, z, sc1 = numeric(length(y)), strata, sigma2.mu, mi
     c <- l_children[i]
     tree[[c]] <- list(d = tree[[l]]$d + 1, b = 0, rule = new_rule[i], l = 1, NOG = 0)
     
-    # Identify records which belong to the child node
+    # Identify records which belong to the child node (requires new rule)
     tree[[c]]$DataIDs <- id <- getDataIDs(c, tree, x)
-    tree[[c]]$n <- length(unique(strata[id]))
     
-    # Identify the maximum window size and NA locations for likelihood calculations
+    # Compute other node attributes
+    n <- length(unique(strata[id]))
     mwna <- getMWNA(strata[id])
-    tree[[c]]$mw <- mwna$mw
-    tree[[c]]$nas <- mwna$nas
-    
-    # Compute m and v for the child node
     mv <- mvCompute(node = c, tree = tree, y = y[id], z = z[id], sc1 = sc1[id], strata = strata[id], sigma2.mu = sigma2.mu, move = 'BIRTH', max.win = mwna$mw, na.locs = mwna$nas)
-    tree[[c]]$m <- mv$m
-    tree[[c]]$v <- mv$v
+    mu <- rnorm(1, mv$m, mv$v)
+    logLik <- compLogLik(y = y[id], sc = sc1[id] + z[id] * mu, strata = strata[id], max.win = mwna$mw, na.locs = mwna$nas)
     
-    # Sample mu for the child node and update the log-likelihood
-    tree[[c]]$mu <- rnorm(1, mv$m, mv$v)
-    tree[[c]]$logLik <- compLogLik(y = y[id], sc = sc1[id] + z[id] * tree[[c]]$mu, strata = strata[id], max.win = mwna$mw, na.locs = mwna$nas)
-  }
+    # Update node with other attributes
+    tree[[c]][c('n','mw','nas','m','v','mu','logLik')] <- c(n, mwna, mv, mu, logLik)
+ }
   
   message <- paste0('In the proposed tree node ', l, ' has been split into node ', l_children[1], ' if ', new_rule[1], ' and node ', l_children[2], ' if ', new_rule[2], '.')
   return(list(tree = tree, new.nodes = l_children, message = message))
@@ -370,20 +363,14 @@ DEATH <- function(tree, y, z, sc1 = numeric(length(y)), strata, sigma2.mu){
   # Randomly select a NOG node to prune back to
   b <- resample(nogs, 1)
   id <- tree[[b]]$DataIDs
-  
-  # Update original NOG node
-  tree[[b]]$b <- 0
-  tree[[b]]$l <- 1
-  tree[[b]]$NOG <- 0
-  
+
   # Recompute m and v for the NOG node (sigma2.mu may have changed since last time)
   mv <- mvCompute(node = b, tree = tree, y = y[id], z = z[id], sc1 = sc1[id], strata = strata[id], sigma2.mu = sigma2.mu, move = 'DEATH', max.win = tree[[b]]$mw, na.locs = tree[[b]]$nas)
-  tree[[b]]$m <- mv$m
-  tree[[b]]$v <- mv$v
+  mu <- rnorm(1, mv$m, mv$v)
+  logLik <- compLogLik(y = y[id], sc = sc1[id] + z[id] * mu, strata = strata[id], max.win = tree[[b]]$mw, na.locs = tree[[b]]$nas)
   
-  # Sample mu for the NOG node and update the log-likelihood
-  tree[[b]]$mu <- rnorm(1, tree[[b]]$m, tree[[b]]$v)
-  tree[[b]]$logLik <- compLogLik(y = y[id], sc = sc1[id] + z[id] * tree[[b]]$mu, strata = strata[id], max.win = tree[[b]]$mw, na.locs = tree[[b]]$nas)
+  # Update original NOG node with other attributes
+  tree[[b]][c('b','l','NOG','m','v','mu','logLik')] <- c(0, 1, 0, mv, mu, logLik)
   
   # Update parent of original NOG node (only if the DEATH makes the parent a NOG)
   if((b != 1) && (tree[[getSibling(b)]]$l == 1)) tree[[getParent(b)]]$NOG <- 1
@@ -438,7 +425,7 @@ CHANGE <- function(tree, x, y, z, sc1 = numeric(length(y)), strata, sigma2.mu, m
     unused_x <- setdiff(predictors, c(used_x_above, used_x_below))
     if(b == 1) b_x <- as.data.frame(cbind(strata, x))
     else b_x <- dplyr::filter(as.data.frame(cbind(strata, x)), eval(str2lang(a.rules)))
-    b_x_distinct <- as.matrix(dplyr::distinct(b_x)[, unused_x])
+    b_x_distinct <- dplyr::distinct(b_x)[unused_x]
     new_node_sizes <- matrix(apply(b_x_distinct, 2, function(x) table(factor(x, levels = 0:1))), nrow = 2, ncol = length(unused_x))
     colnames(new_node_sizes) <- unused_x
     
@@ -466,24 +453,19 @@ CHANGE <- function(tree, x, y, z, sc1 = numeric(length(y)), strata, sigma2.mu, m
     c <- b_children[i]
     tree[[c]]$rule <- new_rule[i]
     
-    # Identify records which belong to the child node
+    # Identify records which belong to the child node (requires new rule)
     tree[[c]]$DataIDs <- id <- getDataIDs(c, tree, x)
-    tree[[c]]$n <- length(unique(strata[id]))
     
-    # Identify the maximum window size and NA locations for likelihood calculations
+    # Compute other node attributes
+    n <- length(unique(strata[id]))
     mwna <- getMWNA(strata[id])
-    tree[[c]]$mw <- mwna$mw
-    tree[[c]]$nas <- mwna$nas
-    
-    # Compute m and v for the child node
     mv <- mvCompute(node = c, tree = tree, y = y[id], z = z[id], sc1 = sc1[id], strata = strata[id], sigma2.mu = sigma2.mu, move = 'BIRTH', max.win = mwna$mw, na.locs = mwna$nas)
-    tree[[c]]$m <- mv$m
-    tree[[c]]$v <- mv$v
+    mu <- rnorm(1, mv$m, mv$v)
+    logLik <- compLogLik(y = y[id], sc = sc1[id] + z[id] * mu, strata = strata[id], max.win = mwna$mw, na.locs = mwna$nas)
     
-    # Sample mu for the child node and update the log-likelihood
-    tree[[c]]$mu <- rnorm(1, mv$m, mv$v)
-    tree[[c]]$logLik <- compLogLik(y = y[id], sc = sc1[id] + z[id] * tree[[c]]$mu, strata = strata[id], max.win = mwna$mw, na.locs = mwna$nas)
-  }
+    # Update node with other attributes
+    tree[[c]][c('n','mw','nas','m','v','mu','logLik')] <- c(n, mwna, mv, mu, logLik)
+}
   
   message <- paste0('In the proposed tree the splitting rule for node ', b, ' into nodes ', b_children[1], ' and ', b_children[2], ' is now based on ', x_change, '.')
   
