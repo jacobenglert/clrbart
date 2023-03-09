@@ -23,7 +23,7 @@ strata <- data$ID
 
 # Fit Model ---------------------------------------------------------------
 set.seed(2187)
-myfit <- clrbart2(w, x, y, z, strata, iter = 20000, burnin = 0)
+myfit <- clrbart2(w, x, y, z, strata, iter = 20000, burnin = 5000)
 saveRDS(myfit, file = "MCMCMoutput/xwz_20000_01MAR2023.RData")
 
 # Summarize tree
@@ -54,21 +54,6 @@ mu.post[-1,] %>%
   labs(x = 'MCMC Iteration', 
        y = 'Log-OR')
 
-# Complete storage method
-# data.frame(cbind(strata, w)) %>%
-#   distinct() %>%
-#   cbind(t(myfit$post$mu)) %>%
-#   select(-strata) %>%
-#   distinct() %>%
-#   pivot_longer(cols = -starts_with('W'), names_to = 'iter', values_to = 'mu') %>%
-#   mutate(iter = as.numeric(iter)) %>%
-#   ggplot(aes(x = iter, y = mu, color = interaction(W1, W2, W3))) +
-#   geom_line() +
-#   #geom_step(direction = 'hv') +
-#   theme_bw() +
-#   labs(x = 'MCMC Iteration',
-#        y = 'Log-OR')
-
 # Visualize iteration time, likelihood, and moves
 data.frame(move = myfit$post$move,
            time = myfit$post$time,
@@ -83,4 +68,63 @@ data.frame(move = myfit$post$move,
   theme_bw() +
   facet_wrap(~Metric, ncol = 1, scales = 'free')
 
-mean(myfit$post$acc)
+
+# Inference on the mu's ---------------------------------------------------
+
+compute_
+
+# Identify effect modifiers
+w_vars <- colnames(w)
+
+# Obtain frequencies of all effect modifier combinations in original dataset
+w_counts <- as.data.frame(w) %>%
+  group_by(across(all_of(w_vars))) %>%
+  summarise(n = n()) %>%
+  ungroup()
+
+# Create counterfactuals and reobtain frequencies
+w1 <- w_counts %>% mutate(W1 = 1) %>% group_by(across(all_of(w_vars))) %>% summarise(n = sum(n))
+w0 <- w_counts %>% mutate(W1 = 0) %>% group_by(across(all_of(w_vars))) %>% summarise(n = sum(n))
+
+# Compute weighted averages of posterior estimates for both groups
+w1.mu <- w1 %>% 
+  left_join(mu.post, by = w_vars) %>%
+  group_by(iter) %>%
+  summarise(mu = sum(n * mu) / sum(n)) %>%
+  ungroup() %>%
+  select(mu)
+
+w0.mu <- w0 %>% 
+  left_join(mu.post, by = w_vars) %>%
+  group_by(iter) %>%
+  summarise(mu = sum(n * mu) / sum(n)) %>%
+  ungroup() %>%
+  select(mu)
+
+# Store estimates of each group effect and the CATE
+CATE <- bind_rows(mu1 = w1.mu, mu0 = w0.mu, cate = w1.mu - w0.mu, .id = 'Group') 
+
+# Plot
+CATEplot <- CATE %>%
+  ggplot(aes(x = mu, fill = Group)) +
+  geom_density(alpha = 0.7, color = 'black') +
+  facet_wrap(~Group, ncol = 1)
+ggsave(filename = 'Figures/CATEplot.png', plot = CATEplot)
+
+# Numeric summary
+summary(CATE)
+
+# Complete storage method
+# data.frame(cbind(strata, w)) %>%
+#   distinct() %>%
+#   cbind(t(myfit$post$mu)) %>%
+#   select(-strata) %>%
+#   distinct() %>%
+#   pivot_longer(cols = -starts_with('W'), names_to = 'iter', values_to = 'mu') %>%
+#   mutate(iter = as.numeric(iter)) %>%
+#   ggplot(aes(x = iter, y = mu, color = interaction(W1, W2, W3))) +
+#   geom_line() +
+#   #geom_step(direction = 'hv') +
+#   theme_bw() +
+#   labs(x = 'MCMC Iteration',
+#        y = 'Log-OR')
