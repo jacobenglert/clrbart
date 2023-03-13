@@ -23,8 +23,13 @@ strata <- data$ID
 
 # Fit Model ---------------------------------------------------------------
 set.seed(2187)
-myfit <- clrbart2(w, x, y, z, strata, iter = 2000, burnin = 0)
-saveRDS(myfit, file = "MCMCMoutput/xwz_20000_01MAR2023.RData")
+myfit <- clrbart2(w, x, y, z, strata, iter = 25000, burnin = 5000)
+saveRDS(myfit, file = "MCMCoutput/xwz_20000_10MAR2023.RData")
+
+
+# Analyze fit -------------------------------------------------------------
+
+myfit <- readRDS(file = "MCMCoutput/xwz_20000_10MAR2023.RData")
 
 # Summarize tree
 cbind(id = which(lapply(myfit$tree, length) > 0), do.call(rbind, myfit$tree))
@@ -71,61 +76,106 @@ data.frame(move = myfit$post$move,
 
 # Inference on the mu's ---------------------------------------------------
 
-w0 <- data.frame(W1 = NA, W2 = NA, W3 = 1, W4 = NA, W5 = NA)
-w1 <- data.frame(W1 = NA, W2 = NA, W3 = NA, W4 = 0, W5 = NA)
+w0 <- data.frame(W1 = 1, W2 = 1, W3 = NA, W4 = NA, W5 = NA)
+w1 <- data.frame(W1 = 1, W2 = 0, W3 = NA, W4 = NA, W5 = NA)
 w_data <- as.data.frame(w)
-w_compare <- function(w0, w1, w_data, mu){
+
+
+w_compare <- function(w0, w1, w_data, mu, method = 'causal'){
   
+  options(dplyr.summarise.inform = FALSE)
+  
+  # Names of effect modifiers for each group
   w0_vars <- names(w0)[!is.na(w0)]
   w1_vars <- names(w1)[!is.na(w1)]
   
+  # All potential effect modifiers
   w_vars <- colnames(w_data)
   
+  # Frequencies of combinations of effect modifiers in the data
   w_counts <- w_data %>%
     group_by(across(all_of(w_vars))) %>%
     summarise(n = n()) %>%
     ungroup()
 
-  w0_data <- w0[w0_vars] %>%
-    cross_join(select(w_counts, -all_of(w0_vars))) %>%
-    group_by(across(all_of(w_vars))) %>% 
-    summarise(n = sum(n))
-  
-  w1_data <- w1[w1_vars] %>%
-    cross_join(select(w_counts, -all_of(w1_vars))) %>%
-    group_by(across(all_of(w_vars))) %>% 
-    summarise(n = sum(n))
-  
-  w0_mu <- w0_data %>% 
-    left_join(mu, by = w_vars, multiple = 'all') %>%
-    group_by(iter) %>%
-    summarise(mu = sum(n * mu) / sum(n)) %>%
-    ungroup() %>%
-    select(mu)
-  
-  w1_mu <- w1_data %>% 
-    left_join(mu, by = w_vars, multiple = 'all') %>%
-    group_by(iter) %>%
-    summarise(mu = sum(n * mu) / sum(n)) %>%
-    ungroup() %>%
-    select(mu)
-  
-  CATE <- bind_rows(w0_mu, w1_mu, cate = w1_mu - w0_mu, .id = 'Group') 
-  
-  return(CATE)
+  # If causal then g-comp, else subgroup averages
+  if(method == 'causal'){
+    w0_data <- w0[w0_vars] %>%
+      cross_join(select(w_counts, -all_of(w0_vars))) %>%
+      group_by(across(all_of(w_vars))) %>% 
+      summarise(n = sum(n))
+    
+    w1_data <- w1[w1_vars] %>%
+      cross_join(select(w_counts, -all_of(w1_vars))) %>%
+      group_by(across(all_of(w_vars))) %>% 
+      summarise(n = sum(n))
+    
+    w0_mu <- w0_data %>% 
+      left_join(mu, by = w_vars, multiple = 'all') %>%
+      group_by(iter) %>%
+      summarise(mu = sum(n * mu) / sum(n)) %>%
+      ungroup() %>%
+      select(mu)
+    
+    w1_mu <- w1_data %>% 
+      left_join(mu, by = w_vars, multiple = 'all') %>%
+      group_by(iter) %>%
+      summarise(mu = sum(n * mu) / sum(n)) %>%
+      ungroup() %>%
+      select(mu)
+    
+    CATE <- bind_rows(w0_mu = w0_mu, w1_mu = w1_mu, diff = w1_mu - w0_mu, .id = 'Group') 
+    return(CATE)
+  } else if(method == 'association'){
+    
+    w0_data <- w0[w0_vars] %>%
+      left_join(w_counts, by = w0_vars, multiple = 'all') %>%
+      group_by(across(all_of(w_vars))) %>% 
+      summarise(n = sum(n))
+    
+    w1_data <- w1[w1_vars] %>%
+      left_join(w_counts, by = w1_vars, multiple = 'all') %>%
+      group_by(across(all_of(w_vars))) %>% 
+      summarise(n = sum(n))
+    
+    w0_mu <- w0_data %>% 
+      left_join(mu, by = w_vars, multiple = 'all') %>%
+      group_by(iter) %>%
+      summarise(mu = sum(n * mu) / sum(n)) %>%
+      ungroup() %>%
+      select(mu)
+    
+    w1_mu <- w1_data %>% 
+      left_join(mu, by = w_vars, multiple = 'all') %>%
+      group_by(iter) %>%
+      summarise(mu = sum(n * mu) / sum(n)) %>%
+      ungroup() %>%
+      select(mu)
+    
+    EFF <- bind_rows(w0_mu = w0_mu, w1_mu = w1_mu, diff = w1_mu - w0_mu, .id = 'Group') 
+    return(EFF)
+  }
 }
 
-w0_w1 <- w_compare(w0, w1, w_data, mu.post)
+w0_w1_c <- w_compare(w0, w1, w_data, mu.post, method = 'causal')
+w0_w1_a <- w_compare(w0, w1, w_data, mu.post, method = 'association')
+
+summary(filter(w0_w1_c, Group == 'diff')$mu)
+summary(filter(w0_w1_a, Group == 'diff')$mu)
 
 # Plot
-CATEplot <- w0_w1 %>%
+w0_w1_c %>%
   ggplot(aes(x = mu, fill = Group)) +
   geom_density(alpha = 0.7, color = 'black') +
   facet_wrap(~Group, ncol = 1)
-ggsave(filename = 'Figures/CATEplot.png', plot = CATEplot)
+ggsave(filename = 'Figures/CATEplot.png')
 
-# Numeric summary
-summary(CATE)
+w0_w1_a %>%
+  ggplot(aes(x = mu, fill = Group)) +
+  geom_density(alpha = 0.7, color = 'black') +
+  facet_wrap(~Group, ncol = 1)
+ggsave(filename = 'Figures/Diffplot.png')
+
 
 # Complete storage method
 # data.frame(cbind(strata, w)) %>%
